@@ -17,8 +17,9 @@ def do_training(hparams, model_constructor):
     # instantiate model
     model = model_constructor(**vars(hparams))
     # set all sorts of training parameters
-    hparams.gpus = -1
-    hparams.accelerator = "ddp"
+    # hparams.gpus = 1
+    hparams.devices = [0]
+    hparams.accelerator = "gpu"
     hparams.benchmark = True
 
     if hparams.dry_run:
@@ -33,7 +34,7 @@ def do_training(hparams, model_constructor):
 
     hparams.sync_batchnorm = True
 
-    ttlogger = pl.loggers.TestTubeLogger(
+    ttlogger = pl.loggers.CSVLogger(
         "checkpoints", name=hparams.exp_name, version=hparams.version
     )
 
@@ -43,6 +44,7 @@ def do_training(hparams, model_constructor):
     hparams.logger = [wblogger, ttlogger]
 
     trainer = pl.Trainer.from_argparse_args(hparams)
+
     trainer.fit(model)
     
 

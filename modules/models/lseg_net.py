@@ -10,6 +10,7 @@ import clip
 import numpy as np
 import pandas as pd
 import os
+from dinov2_encoder import dinov2_encoder, projection_net
 
 class depthwise_clipseg_conv(nn.Module):
     def __init__(self):
@@ -155,8 +156,10 @@ class LSeg(BaseModel):
 
         self.scratch.output_conv = head
 
-        self.text = clip.tokenize(self.labels)    
-        
+        self.text = clip.tokenize(self.labels)  
+        self.dinov2 = dinov2_encoder.from_pretrained("facebook/dinov2-base")
+        self.project = projection_net()
+
     def forward(self, x, labelset=''):
         if labelset == '':
             text = self.text
@@ -165,33 +168,48 @@ class LSeg(BaseModel):
         
         if self.channels_last == True:
             x.contiguous(memory_format=torch.channels_last)
+        #TODO 自己写的dinov2的embedding 
+        # with torch.no_grad():  
+        patch_embeddings = self.dinov2(x, output_hidden_states=False, output_attentions=False)
+        # get the patch emeddings - so we exclude the CLS token
 
-        layer_1, layer_2, layer_3, layer_4 = forward_vit(self.pretrained, x)
+        # layer_1, layer_2, layer_3, layer_4 = forward_vit(self.pretrained, x) #图片的大小是1,3,480,480
 
-        layer_1_rn = self.scratch.layer1_rn(layer_1)
-        layer_2_rn = self.scratch.layer2_rn(layer_2)
-        layer_3_rn = self.scratch.layer3_rn(layer_3)
-        layer_4_rn = self.scratch.layer4_rn(layer_4)
+        # layer_1_rn = self.scratch.layer1_rn(layer_1)
+        # layer_2_rn = self.scratch.layer2_rn(layer_2)
+        # layer_3_rn = self.scratch.layer3_rn(layer_3)
+        # layer_4_rn = self.scratch.layer4_rn(layer_4)
 
-        path_4 = self.scratch.refinenet4(layer_4_rn)
-        path_3 = self.scratch.refinenet3(path_4, layer_3_rn)
-        path_2 = self.scratch.refinenet2(path_3, layer_2_rn)
-        path_1 = self.scratch.refinenet1(path_2, layer_1_rn)
+        # path_4 = self.scratch.refinenet4(layer_4_rn)
+        # path_3 = self.scratch.refinenet3(path_4, layer_3_rn)
+        # path_2 = self.scratch.refinenet2(path_3, layer_2_rn)
+        # path_1 = self.scratch.refinenet1(path_2, layer_1_rn)
 
         text = text.to(x.device)
         self.logit_scale = self.logit_scale.to(x.device)
         text_features = self.clip_pretrained.encode_text(text)
 
-        image_features = self.scratch.head1(path_1)
+        # image_features = self.scratch.head1(path_1)
+        
+        #TODO 这里需要进行patch的恢复，同时需要进行linear从768到512维度的变换
+        patch_num = int(math.sqrt(patch_embeddings.shape[1]))
 
-        imshape = image_features.shape
+        image_features = patch_embeddings.reshape(-1, patch_num ,patch_num ,768) #1 34 34 768
+        #先进行扩充，然后再去降维
+        image_features = torch.nn.functional.interpolate(image_features, size=[240, 240], mode="bilinear", align_corners=False) #1 240 240 768
+        image_features = image_features.permute(0,3,1,2)
+        image_features = self.project(image_features)
+
+        
+        # image_features = torch.nn.functional.interpolate(image_features, size=[240, 240], mode="bilinear", align_corners=False)
+        imshape = image_features.shape #这里的imagefeature的shape是 1 512 240 240
         image_features = image_features.permute(0,2,3,1).reshape(-1, self.out_c)
 
         # normalized features
         image_features = image_features / image_features.norm(dim=-1, keepdim=True)
         text_features = text_features / text_features.norm(dim=-1, keepdim=True)
         
-        logits_per_image = self.logit_scale * image_features.half() @ text_features.t()
+        logits_per_image = self.logit_scale * image_features.half() @ text_features.t() # 512
 
         out = logits_per_image.float().view(imshape[0], imshape[2], imshape[3], -1).permute(0,3,1,2)
 
@@ -199,10 +217,10 @@ class LSeg(BaseModel):
             for _ in range(self.block_depth - 1):
                 out = self.scratch.head_block(out)
             out = self.scratch.head_block(out, False)
-
+        #这里进行了插值函数，使其恢复到原始的图像大小
         out = self.scratch.output_conv(out)
             
-        return out
+        return out #1 150 480 480
 
 
 class LSegNet(LSeg):

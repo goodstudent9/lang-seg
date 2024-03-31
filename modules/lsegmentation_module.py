@@ -9,6 +9,7 @@ import torchvision.transforms as transforms
 from argparse import ArgumentParser
 
 import pytorch_lightning as pl
+import torchmetrics
 
 from data import get_dataset, get_available_datasets
 
@@ -179,7 +180,7 @@ class LSegmentationModule(pl.LightningModule):
             self.trainset,
             batch_size=self.batch_size,
             shuffle=True,
-            num_workers=16,
+            num_workers=1,
             worker_init_fn=lambda x: random.seed(time.time() + x),
         )
 
@@ -188,7 +189,7 @@ class LSegmentationModule(pl.LightningModule):
             self.valset,
             batch_size=self.batch_size,
             shuffle=False,
-            num_workers=16,
+            num_workers=1,
         )
 
     def get_trainset(self, dset, augment=False, **kwargs):
@@ -209,12 +210,12 @@ class LSegmentationModule(pl.LightningModule):
         )
 
         self.num_classes = dset.num_class
-        self.train_accuracy = pl.metrics.Accuracy()
+        self.train_accuracy = torchmetrics.Accuracy()
 
         return dset
 
     def get_valset(self, dset, augment=False, **kwargs):
-        self.val_accuracy = pl.metrics.Accuracy()
+        self.val_accuracy = torchmetrics.Accuracy()
         self.val_iou = SegmentationMetric(self.num_classes)
 
         if augment == True:
