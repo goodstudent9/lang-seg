@@ -119,7 +119,7 @@ class LSegmentationModule(pl.LightningModule):
 
     def configure_optimizers(self):
         params_list = [
-            {"params": self.net.pretrained.parameters(), "lr": self.base_lr},
+            {"params": self.net.dinov2.parameters(), "lr": self.base_lr},
         ]
         if hasattr(self.net, "scratch"):
             print("Found output scratch")
@@ -180,7 +180,7 @@ class LSegmentationModule(pl.LightningModule):
             self.trainset,
             batch_size=self.batch_size,
             shuffle=True,
-            num_workers=1,
+            num_workers=0,
             worker_init_fn=lambda x: random.seed(time.time() + x),
         )
 
@@ -189,7 +189,7 @@ class LSegmentationModule(pl.LightningModule):
             self.valset,
             batch_size=self.batch_size,
             shuffle=False,
-            num_workers=1,
+            num_workers=0,
         )
 
     def get_trainset(self, dset, augment=False, **kwargs):

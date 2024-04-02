@@ -83,10 +83,10 @@ class LSegModule(LSegmentationModule):
             activation=kwargs["activation"],
         )
 
-        self.net.pretrained.model.patch_embed.img_size = (
-            self.crop_size,
-            self.crop_size,
-        )
+        # self.net.pretrained.model.patch_embed.img_size = (
+        #     self.crop_size,
+        #     self.crop_size,
+        # )
 
         self._up_kwargs = up_kwargs
         self.mean = norm_mean
