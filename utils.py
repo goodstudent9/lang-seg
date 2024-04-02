@@ -17,9 +17,9 @@ def do_training(hparams, model_constructor):
     # instantiate model
     model = model_constructor(**vars(hparams))
     # set all sorts of training parameters
-    # hparams.gpus = 1
-    hparams.devices = [0]
-    hparams.accelerator = "gpu"
+    hparams.gpus = 4
+    # hparams.devices = [0,1]
+    hparams.accelerator = "cuda"
     hparams.benchmark = True
 
     if hparams.dry_run:
