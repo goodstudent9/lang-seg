@@ -81,12 +81,13 @@ class LSegModule(LSegmentationModule):
             arch_option=kwargs["arch_option"],
             block_depth=kwargs["block_depth"],
             activation=kwargs["activation"],
+            not_changed=kwargs["not_changed"]
         )
-
-        # self.net.pretrained.model.patch_embed.img_size = (
-        #     self.crop_size,
-        #     self.crop_size,
-        # )
+ 
+        self.net.pretrained.model.patch_embed.img_size = (
+            self.crop_size,
+            self.crop_size,
+        )
 
         self._up_kwargs = up_kwargs
         self.mean = norm_mean

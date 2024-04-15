@@ -1,5 +1,6 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
+# os.environ["CUDA_VISIBLE_DEVICES"]="1"
+os.environ["CUDA_LAUNCH_BLOCKING"]="1"
 from modules.lseg_module import LSegModule
 from utils import do_training, get_default_argument_parser
 

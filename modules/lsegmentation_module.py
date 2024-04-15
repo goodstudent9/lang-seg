@@ -10,7 +10,6 @@ from argparse import ArgumentParser
 
 import pytorch_lightning as pl
 import torchmetrics
-
 from data import get_dataset, get_available_datasets
 
 from encoding.models import get_segmentation_model
@@ -37,6 +36,7 @@ class LSegmentationModule(pl.LightningModule):
         self.other_kwargs = kwargs
         self.enabled = False #True mixed precision will make things complicated and leading to NAN error
         self.scaler = amp.GradScaler(enabled=self.enabled)
+        self.not_changed = kwargs["not_changed"]
 
     def forward(self, x):
         return self.net(x)
@@ -118,9 +118,18 @@ class LSegmentationModule(pl.LightningModule):
         return mx[valid], target[valid]
 
     def configure_optimizers(self):
-        params_list = [
-            {"params": self.net.dinov2.parameters(), "lr": self.base_lr},
-        ]
+        if(self.not_changed):
+            params_list = [
+                {"params": self.net.dinov2.parameters(), "lr": self.base_lr},
+            ]
+            #TODO这里添加了原来网络的adam优化器
+            params_list.append(
+                {"params": self.net.pretrained.parameters(), "lr": self.base_lr}
+            )
+        else:
+            params_list = [
+                {"params": self.net.pretrained.parameters(), "lr": self.base_lr},
+            ]
         if hasattr(self.net, "scratch"):
             print("Found output scratch")
             params_list.append(
@@ -189,7 +198,7 @@ class LSegmentationModule(pl.LightningModule):
             self.valset,
             batch_size=self.batch_size,
             shuffle=False,
-            num_workers=4,
+            num_workers=4
         )
 
     def get_trainset(self, dset, augment=False, **kwargs):

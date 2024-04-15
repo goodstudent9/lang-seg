@@ -206,6 +206,11 @@ class Options:
             default="lrelu",
             help="use which activation to activate the block",
         )
+        parser.add_argument(
+            "--not_changed",
+            default=True,
+            help="use which activation to activate the block",
+        )
 
         self.parser = parser
 
@@ -243,6 +248,7 @@ def test(args):
         strict=args.strict,
         block_depth=args.block_depth,
         activation=args.activation,
+        not_changed = args.not_changed
     )
     input_transform = module.val_transform
     num_classes = module.num_classes

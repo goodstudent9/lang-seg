@@ -1,6 +1,5 @@
 import os
 import pathlib
-
 from glob import glob
 
 from argparse import ArgumentParser
@@ -15,11 +14,14 @@ from torchvision import transforms
 
 def do_training(hparams, model_constructor):
     # instantiate model
+    hparams.version = 5
+    hparams.no_resume = True
+    hparams.not_changed = False
     model = model_constructor(**vars(hparams))
     # set all sorts of training parameters
-    hparams.gpus = 4
-    # hparams.devices = [0,1]
-    hparams.accelerator = "cuda"
+    hparams.devices = [0]
+    hparams.accelerator = "gpu"
+    # hparams.strategy="ddp"
     hparams.benchmark = True
 
     if hparams.dry_run:
@@ -30,7 +32,7 @@ def do_training(hparams, model_constructor):
         hparams = set_resume_parameters(hparams)
 
     if not hasattr(hparams, "version") or hparams.version is None:
-        hparams.version = 0
+        hparams.version = 5
 
     hparams.sync_batchnorm = True
 
@@ -40,11 +42,11 @@ def do_training(hparams, model_constructor):
 
     hparams.callbacks = make_checkpoint_callbacks(hparams.exp_name, hparams.version)
 
-    wblogger = get_wandb_logger(hparams)
-    hparams.logger = [wblogger, ttlogger]
-
+    # wblogger = get_wandb_logger(hparams)
+    # hparams.logger = [wblogger, ttlogger]
+    hparams.logger = [ttlogger]
+    
     trainer = pl.Trainer.from_argparse_args(hparams)
-
     trainer.fit(model)
     
 
@@ -88,6 +90,9 @@ def get_default_argument_parser():
 
     parser.add_argument(
         "--project_name", type=str, default="lightseg", help="project name for logging"
+    )
+    parser.add_argument(
+        "--not_changed", type=bool, default=False, help="Choose the visual backbone for DPT."
     )
 
     return parser

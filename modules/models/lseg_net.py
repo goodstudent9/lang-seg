@@ -116,70 +116,103 @@ class LSeg(BaseModel):
         **kwargs,
     ):
         super(LSeg, self).__init__()
-
+        self.not_changed = kwargs['not_changed']
         self.channels_last = channels_last
+        if self.not_changed:
+            hooks = {
+                "clip_vitl16_384": [5, 11, 17, 23],
+                "clipRN50x16_vitl16_384": [5, 11, 17, 23],
+                "clip_vitb32_384": [2, 5, 8, 11],
+            }
 
-        # hooks = {
-        #     "clip_vitl16_384": [5, 11, 17, 23],
-        #     "clipRN50x16_vitl16_384": [5, 11, 17, 23],
-        #     "clip_vitb32_384": [2, 5, 8, 11],
-        # }
+            # # Instantiate backbone and reassemble blocks
+            self.clip_pretrained, self.pretrained, self.scratch = _make_encoder(
+                backbone,
+                features,
+                groups=1,
+                expand=False,
+                exportable=False,
+                hooks=hooks[backbone],
+                use_readout=readout,
+            )
+            #TODO 设置文本是不可以训练的，这样的效果是很糟糕的
+            # self.clip_pretrained.eval()
+            
+            self.scratch.refinenet1 = _make_fusion_block(features, use_bn)
+            self.scratch.refinenet2 = _make_fusion_block(features, use_bn)
+            self.scratch.refinenet3 = _make_fusion_block(features, use_bn)
+            self.scratch.refinenet4 = _make_fusion_block(features, use_bn)
 
-        # # # Instantiate backbone and reassemble blocks
-        # self.clip_pretrained, self.pretrained, self.scratch = _make_encoder(
-        #     backbone,
-        #     features,
-        #     groups=1,
-        #     expand=False,
-        #     exportable=False,
-        #     hooks=hooks[backbone],
-        #     use_readout=readout,
-        # )
-        self.clip_pretrained, _ = clip.load("ViT-B/32", device='cuda', jit=False)
-        # self.scratch.refinenet1 = _make_fusion_block(features, use_bn)
-        # self.scratch.refinenet2 = _make_fusion_block(features, use_bn)
-        # self.scratch.refinenet3 = _make_fusion_block(features, use_bn)
-        # self.scratch.refinenet4 = _make_fusion_block(features, use_bn)
+            self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07)).exp()
+            if backbone in ["clipRN50x16_vitl16_384"]:
+                self.out_c = 768
+            else:
+                self.out_c = 512
+            self.scratch.head1 = nn.Conv2d(features, self.out_c, kernel_size=1)
 
-        self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07)).exp()
-        if backbone in ["clipRN50x16_vitl16_384"]:
-            self.out_c = 768
+            self.arch_option = kwargs["arch_option"]
+            if self.arch_option == 1:
+                self.scratch.head_block = bottleneck_block(activation=kwargs["activation"])
+                self.block_depth = kwargs['block_depth']
+            elif self.arch_option == 2:
+                self.scratch.head_block = depthwise_block(activation=kwargs["activation"])
+                self.block_depth = kwargs['block_depth']
+
+            self.scratch.output_conv = head
+
+            self.text = clip.tokenize(self.labels)  
+
+            #TODO 进行特征的融合试试
+            backbone_config = Dinov2Config.from_pretrained("facebook/dinov2-large", out_features=["stage5", "stage11", "stage17", "stage23"], reshape_hidden_states=False)
+            config = DPTConfig(backbone_config=backbone_config, image_size=480)
+            self.dinov2  = DPTForDepthEstimation(config=config)
+            # self.up_d = nn.Conv2d(features, self.out_c, kernel_size=1)
+            self.fusion_conv = nn.Conv2d(in_channels=768, out_channels=512, kernel_size=1)
+
+            #结束
         else:
-            self.out_c = 512
-        # self.scratch.head1 = nn.Conv2d(features, self.out_c, kernel_size=1)
+            hooks = {
+                "clip_vitl16_384": [5, 11, 17, 23],
+                "clipRN50x16_vitl16_384": [5, 11, 17, 23],
+                "clip_vitb32_384": [2, 5, 8, 11],
+            }
 
-        # self.arch_option = kwargs["arch_option"]
-        # if self.arch_option == 1:
-        #     self.scratch.head_block = bottleneck_block(activation=kwargs["activation"])
-        #     self.block_depth = kwargs['block_depth']
-        # elif self.arch_option == 2:
-        #     self.scratch.head_block = depthwise_block(activation=kwargs["activation"])
-        #     self.block_depth = kwargs['block_depth']
+            # # Instantiate backbone and reassemble blocks
+            self.clip_pretrained, self.pretrained, self.scratch = _make_encoder(
+                backbone,
+                features,
+                groups=1,
+                expand=False,
+                exportable=False,
+                hooks=hooks[backbone],
+                use_readout=readout,
+            )
+            
+            self.scratch.refinenet1 = _make_fusion_block(features, use_bn)
+            self.scratch.refinenet2 = _make_fusion_block(features, use_bn)
+            self.scratch.refinenet3 = _make_fusion_block(features, use_bn)
+            self.scratch.refinenet4 = _make_fusion_block(features, use_bn)
 
-        # self.scratch.output_conv = head
+            self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07)).exp()
+            if backbone in ["clipRN50x16_vitl16_384"]:
+                self.out_c = 768
+            else:
+                self.out_c = 512
+            self.scratch.head1 = nn.Conv2d(features, self.out_c, kernel_size=1)
 
-        self.text = clip.tokenize(self.labels)  
-        #自己的代码
-        # self.dinov2 = dinov2_encoder.from_pretrained("facebook/dinov2-base")
-        backbone_config = Dinov2Config.from_pretrained("facebook/dinov2-large", out_features=["stage2", "stage5", "stage8", "stage11"], reshape_hidden_states=False)
+            self.arch_option = kwargs["arch_option"]
+            if self.arch_option == 1:
+                self.scratch.head_block = bottleneck_block(activation=kwargs["activation"])
+                self.block_depth = kwargs['block_depth']
+            elif self.arch_option == 2:
+                self.scratch.head_block = depthwise_block(activation=kwargs["activation"])
+                self.block_depth = kwargs['block_depth']
 
-        # config = DPTConfig(backbone_config=backbone_config)
-        config = DPTConfig(backbone_config=backbone_config, image_size=480)
-        self.dinov2  = DPTForDepthEstimation(config=config)
-        self.up_d = nn.Conv2d(256, 512, kernel_size=(1, 1), stride=(1, 1))
-        self.up_d = nn.Conv2d(features, self.out_c, kernel_size=1)
-        # self.head_dinov2 = nn.Sequential(
-        #     nn.Conv2d(features, features // 2, kernel_size=3, stride=1, padding=1),
-        #     nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True),
-        #     nn.Conv2d(features // 2, 32, kernel_size=3, stride=1, padding=1),
-        #     nn.ReLU(),
-        #     nn.Conv2d(32, 1, kernel_size=1, stride=1, padding=0),
-        #     nn.ReLU()
-        # )
-        # self.text_projection = nn.Linear(512, 768, bias=False)
-        # self.project = projection_net()
-        #结束
+            self.scratch.output_conv = head
 
+            self.text = clip.tokenize(self.labels)  
+
+        
     def forward(self, x, labelset=''):
         if labelset == '':
             text = self.text
@@ -188,65 +221,114 @@ class LSeg(BaseModel):
         
         if self.channels_last == True:
             x.contiguous(memory_format=torch.channels_last)
-        #TODO 自己写的dinov2的embedding
-        # with torch.no_grad():  
-        patch_embeddings = self.dinov2(x, output_hidden_states=True, return_dict=True)
-        dinov2_hidden_states = patch_embeddings.hidden_states #4 256 272 272
-        # get the patch emeddings - so we exclude the CLS token
-        #自己的代码结束
-        last_fused_feature = dinov2_hidden_states[-1]
+        if self.not_changed:
+            layer_1, layer_2, layer_3, layer_4 = forward_vit(self.pretrained, x)
 
-        # layer_1, layer_2, layer_3, layer_4 = forward_vit(self.pretrained, x) #图片的大小是1,3,480,480
-        # # layer_1, layer_2, layer_3, layer_4 = forward_dinov2(dinov2_hidden_states)
+            layer_1_rn = self.scratch.layer1_rn(layer_1)
+            layer_2_rn = self.scratch.layer2_rn(layer_2)
+            layer_3_rn = self.scratch.layer3_rn(layer_3)
+            layer_4_rn = self.scratch.layer4_rn(layer_4)
+
+            path_4 = self.scratch.refinenet4(layer_4_rn)
+            path_3 = self.scratch.refinenet3(path_4, layer_3_rn)
+            path_2 = self.scratch.refinenet2(path_3, layer_2_rn)
+            path_1 = self.scratch.refinenet1(path_2, layer_1_rn)
+
+            image_features = self.scratch.head1(path_1)
+            origin_features = image_features
+
+            #TODO 进行特征的融合试试forward
+            # with torch.no_grad():
+            patch_embeddings = self.dinov2(x, output_hidden_states=True, return_dict=True)
+            dinov2_hidden_states = patch_embeddings.hidden_states
+            last_fused_feature = dinov2_hidden_states[-1]
+            # last_fused_feature = self.up_d(last_fused_feature) # 1 256 272 272->1 512 272 272
+            last_fused_feature =  F.interpolate(last_fused_feature, size=(240, 240), mode='bilinear', align_corners=False)
+            combined_features = torch.cat((last_fused_feature, origin_features), dim=1)
+            fusion_features = self.fusion_conv(combined_features)
+
+            method = "conv+add"
+            if method == "conv":
+            #减少一个卷积1*1的层
+                image_features = fusion_features 
+
+            if method == "add":
+            #直接相加
+                image_features = last_fused_feature + origin_features
+
+            if method =="conv+add":
+                image_features = fusion_features + origin_features
+
+            imshape = image_features.shape
+            image_features = image_features.permute(0,2,3,1).reshape(-1, self.out_c)
+            image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+
+            last_fused_feature = last_fused_feature.permute(0,2,3,1).reshape(-1, self.out_c)
+            last_fused_feature = last_fused_feature / last_fused_feature.norm(dim=-1, keepdim=True)
+
+            
+
+            text = text.to(x.device)
+            self.logit_scale = self.logit_scale.to(x.device)
+    
+            text_features = self.clip_pretrained.encode_text(text)
+            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+            
+            logits_per_image = self.logit_scale * image_features.half() @ text_features.t()
+            # origin_logits_per_image = self.logit_scale * origin_features.half() @ text_features.t()
+            dinov2_logits_per_image = self.logit_scale * last_fused_feature.half() @ text_features.t()
 
 
-        # layer_1_rn = self.scratch.layer1_rn(layer_1) # 4 256 120 120
-        # layer_2_rn = self.scratch.layer2_rn(layer_2) # 4 512 60 60
-        # layer_3_rn = self.scratch.layer3_rn(layer_3) # 4 1024 30 30
-        # layer_4_rn = self.scratch.layer4_rn(layer_4) # 4 2048 15 15
+            # kl_divergence = F.kl_div(((torch.softmax(dinov2_logits_per_image,dim=-1)*10).log())[0], ((torch.softmax(logits_per_image,dim=-1))*10).log()[0], reduction='batchmean')
+            #TODO 设置一个原来的和dinov2的
 
-        # path_4 = self.scratch.refinenet4(layer_4_rn)
-        # path_3 = self.scratch.refinenet3(path_4, layer_3_rn)
-        # path_2 = self.scratch.refinenet2(path_3, layer_2_rn)
-        # path_1 = self.scratch.refinenet1(path_2, layer_1_rn)
+            out = logits_per_image.float().view(imshape[0], imshape[2], imshape[3], -1).permute(0,3,1,2)
 
-        text = text.to(x.device)
-        self.logit_scale = self.logit_scale.to(x.device)
-        text_features = self.clip_pretrained.encode_text(text).float()
-        # text_features = self.text_projection(text_features)
+            if self.arch_option in [1, 2]:
+                for _ in range(self.block_depth - 1):
+                    out = self.scratch.head_block(out)
+                out = self.scratch.head_block(out, False)
 
-        # image_features = self.scratch.head1(path_1) #4 256 240 240
-        image_features = self.up_d(last_fused_feature)
-        # image_features = self.scratch.head1(last_fused_feature) #4 256 272 272
-        #TODO 这里需要进行patch的恢复，同时需要进行linear从768到512维度的变换
-        # patch_num = int(math.sqrt(patch_embeddings.shape[1]))
+            out = self.scratch.output_conv(out)
 
-        # image_features = patch_embeddings.reshape(-1, patch_num ,patch_num ,768) #1 34 34 768
-        # image_features = image_features.permute(0, 3, 1, 2)
-        # #先进行扩充，然后再去降维
-        # image_features = torch.nn.functional.interpolate(image_features, size=(240, 240), mode='bicubic', align_corners=False) #1 240 240 768
-        # image_features = self.project(image_features)
-        #自己的代码结束
+        else:
+            layer_1, layer_2, layer_3, layer_4 = forward_vit(self.pretrained, x)
 
-        imshape = image_features.shape #这里的imagefeature的shape是 1 512 240 240
-        image_features = image_features.permute(0,2,3,1).reshape(-1, self.out_c)
+            layer_1_rn = self.scratch.layer1_rn(layer_1)
+            layer_2_rn = self.scratch.layer2_rn(layer_2)
+            layer_3_rn = self.scratch.layer3_rn(layer_3)
+            layer_4_rn = self.scratch.layer4_rn(layer_4)
 
-        # normalized features
-        image_features = image_features / image_features.norm(dim=-1, keepdim=True)
-        text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-        
-        logits_per_image = self.logit_scale * image_features @ text_features.t() # 512
+            path_4 = self.scratch.refinenet4(layer_4_rn)
+            path_3 = self.scratch.refinenet3(path_4, layer_3_rn)
+            path_2 = self.scratch.refinenet2(path_3, layer_2_rn)
+            path_1 = self.scratch.refinenet1(path_2, layer_1_rn)
 
-        out = logits_per_image.float().view(imshape[0], imshape[2], imshape[3], -1).permute(0,3,1,2)
+            text = text.to(x.device)
+            self.logit_scale = self.logit_scale.to(x.device)
+            text_features = self.clip_pretrained.encode_text(text)
 
-        # if self.arch_option in [1, 2]:
-        #     for _ in range(self.block_depth - 1):
-        #         out = self.scratch.head_block(out)
-        #     out = self.scratch.head_block(out, False)
-        #这里进行了插值函数，使其恢复到原始的图像大小
-        # out = self.scratch.output_conv(out)
-        out =  F.interpolate(out, size=(480, 480), mode='bilinear', align_corners=False)
-        return out #1 150 480 480
+            image_features = self.scratch.head1(path_1)
+
+            imshape = image_features.shape
+            image_features = image_features.permute(0,2,3,1).reshape(-1, self.out_c)
+
+            # normalized features
+            image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+            
+            logits_per_image = self.logit_scale * image_features.half() @ text_features.t()
+
+            out = logits_per_image.float().view(imshape[0], imshape[2], imshape[3], -1).permute(0,3,1,2)
+
+            if self.arch_option in [1, 2]:
+                for _ in range(self.block_depth - 1):
+                    out = self.scratch.head_block(out)
+                out = self.scratch.head_block(out, False)
+
+            out = self.scratch.output_conv(out)
+            
+        return out
 
 
 class LSegNet(LSeg):
