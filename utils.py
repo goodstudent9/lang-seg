@@ -14,9 +14,9 @@ from torchvision import transforms
 
 def do_training(hparams, model_constructor):
     # instantiate model
-    hparams.version = 5
+    hparams.version = 10
     hparams.no_resume = True
-    hparams.not_changed = False
+    hparams.not_changed = True
     model = model_constructor(**vars(hparams))
     # set all sorts of training parameters
     hparams.devices = [0]

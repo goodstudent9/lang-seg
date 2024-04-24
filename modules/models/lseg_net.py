@@ -247,7 +247,7 @@ class LSeg(BaseModel):
             combined_features = torch.cat((last_fused_feature, origin_features), dim=1)
             fusion_features = self.fusion_conv(combined_features)
 
-            method = "conv+add"
+            method = "conv"
             if method == "conv":
             #减少一个卷积1*1的层
                 image_features = fusion_features 

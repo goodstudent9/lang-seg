@@ -23,6 +23,9 @@ import numpy as np
 
 from encoding.utils import SegmentationMetric
 
+from torch.utils.tensorboard import SummaryWriter
+import os
+
 class LSegmentationModule(pl.LightningModule):
     def __init__(self, data_path, dataset, batch_size, base_lr, max_epochs, **kwargs):
         super().__init__()
@@ -37,6 +40,8 @@ class LSegmentationModule(pl.LightningModule):
         self.enabled = False #True mixed precision will make things complicated and leading to NAN error
         self.scaler = amp.GradScaler(enabled=self.enabled)
         self.not_changed = kwargs["not_changed"]
+        # version_path = os.path.join("/home/lang-seg/checkpoints/lseg_ade20k_l16", kwargs['version'])
+        # self.writer = SummaryWriter(version_path)
 
     def forward(self, x):
         return self.net(x)
