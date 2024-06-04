@@ -14,14 +14,14 @@ from torchvision import transforms
 
 def do_training(hparams, model_constructor):
     # instantiate model
-    hparams.version = 10
+    hparams.version = 4
     hparams.no_resume = True
-    hparams.not_changed = True
+    hparams.not_changed = False
     model = model_constructor(**vars(hparams))
     # set all sorts of training parameters
-    hparams.devices = [0]
+    hparams.gpus = 4
     hparams.accelerator = "gpu"
-    # hparams.strategy="ddp"
+    # hparams.gpus=3
     hparams.benchmark = True
 
     if hparams.dry_run:
@@ -45,8 +45,8 @@ def do_training(hparams, model_constructor):
     # wblogger = get_wandb_logger(hparams)
     # hparams.logger = [wblogger, ttlogger]
     hparams.logger = [ttlogger]
-    
     trainer = pl.Trainer.from_argparse_args(hparams)
+
     trainer.fit(model)
     
 

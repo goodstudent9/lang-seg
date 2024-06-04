@@ -1,3 +1,4 @@
+import pdb
 import torch
 import torch.nn as nn
 
@@ -5,6 +6,7 @@ from .lseg_vit import (
     _make_pretrained_clip_vitl16_384,
     _make_pretrained_clip_vitb32_384,
     _make_pretrained_clipRN50x16_vitl16_384,
+    _make_pretrained_siglip_vitl16_384,
     forward_vit,
 )
 
@@ -21,6 +23,7 @@ def _make_encoder(
     use_readout="ignore",
     enable_attention_hooks=False,
 ):  
+    # pdb.set_trace()
     if backbone == "clip_vitl16_384": 
         clip_pretrained, pretrained = _make_pretrained_clip_vitl16_384(
             use_pretrained,
@@ -31,6 +34,17 @@ def _make_encoder(
         scratch = _make_scratch(
             [256, 512, 1024, 1024], features, groups=groups, expand=expand
         ) 
+    elif backbone == "siglip_vitl16_384":
+        clip_pretrained, pretrained = _make_pretrained_siglip_vitl16_384(
+            use_pretrained,
+            hooks=hooks,
+            use_readout=use_readout,
+            enable_attention_hooks=enable_attention_hooks,
+        )
+        scratch = _make_scratch(
+            [256, 512, 1024, 1024], features, groups=groups, expand=expand
+        ) 
+
     elif backbone == "clipRN50x16_vitl16_384":
         clip_pretrained, pretrained = _make_pretrained_clipRN50x16_vitl16_384(
             use_pretrained,

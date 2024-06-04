@@ -1,4 +1,5 @@
 import math
+import pdb
 import types
 
 import torch
@@ -13,6 +14,7 @@ import os
 # from dinov2_encoder import dinov2_encoder, projection_net
 from transformers import Dinov2Model, Dinov2PreTrainedModel, DPTModel, Dinov2Config, DPTConfig, DPTForDepthEstimation
 from transformers.modeling_outputs import SemanticSegmenterOutput
+from transformers import  AutoProcessor
 
 class depthwise_clipseg_conv(nn.Module):
     def __init__(self):
@@ -118,14 +120,22 @@ class LSeg(BaseModel):
         super(LSeg, self).__init__()
         self.not_changed = kwargs['not_changed']
         self.channels_last = channels_last
+        self.backbone = backbone
+        # pdb.set_trace()
+        self.not_changed = False
         if self.not_changed:
             hooks = {
                 "clip_vitl16_384": [5, 11, 17, 23],
                 "clipRN50x16_vitl16_384": [5, 11, 17, 23],
                 "clip_vitb32_384": [2, 5, 8, 11],
+                "siglip_vitl16_384":[5, 11, 17, 23]
             }
 
             # # Instantiate backbone and reassemble blocks
+            # 这一步构建clip_ptrtrained text encoder; pretrained vision encoder
+            #这里的clippretrained接受的事tokenize之后的文本
+            #这里的pretrained接受的是
+            # pdb.set_trace()
             self.clip_pretrained, self.pretrained, self.scratch = _make_encoder(
                 backbone,
                 features,
@@ -146,6 +156,8 @@ class LSeg(BaseModel):
             self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07)).exp()
             if backbone in ["clipRN50x16_vitl16_384"]:
                 self.out_c = 768
+            elif backbone in ["siglip_vitl16_384"]:
+                self.out_c = 1024
             else:
                 self.out_c = 512
             self.scratch.head1 = nn.Conv2d(features, self.out_c, kernel_size=1)
@@ -175,6 +187,7 @@ class LSeg(BaseModel):
                 "clip_vitl16_384": [5, 11, 17, 23],
                 "clipRN50x16_vitl16_384": [5, 11, 17, 23],
                 "clip_vitb32_384": [2, 5, 8, 11],
+                "siglip_vitl16_384":[5, 11, 17, 23]
             }
 
             # # Instantiate backbone and reassemble blocks
@@ -196,6 +209,8 @@ class LSeg(BaseModel):
             self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07)).exp()
             if backbone in ["clipRN50x16_vitl16_384"]:
                 self.out_c = 768
+            elif backbone in ["siglip_vitl16_384"]:
+                self.out_c = 1024
             else:
                 self.out_c = 512
             self.scratch.head1 = nn.Conv2d(features, self.out_c, kernel_size=1)
@@ -209,20 +224,37 @@ class LSeg(BaseModel):
                 self.block_depth = kwargs['block_depth']
 
             self.scratch.output_conv = head
-
-            self.text = clip.tokenize(self.labels)  
+            if self.backbone == "siglip_vitl16_384":
+                processor = AutoProcessor.from_pretrained("google/siglip-large-patch16-384")
+                tokenizer = processor.tokenizer
+                self.tokenizer = tokenizer
+                self.text = tokenizer(self.labels, padding="max_length")
+                self.image_processor = processor.image_processor
+    
+            else:
+                self.text = clip.tokenize(self.labels)  
 
         
     def forward(self, x, labelset=''):
         if labelset == '':
             text = self.text
+        elif self.backbone == "siglip_vitl16_384":
+            
+            text = self.tokenizer(labelset, padding="max_length")
+            
+
         else:
-            text = clip.tokenize(labelset)    
-        
+            text = clip.tokenize(labelset)
+        if not torch.is_tensor(text): 
+            text = torch.tensor(text.input_ids)
+        # pdb.set_trace()  
+        # x = self.image_processor(x)
         if self.channels_last == True:
             x.contiguous(memory_format=torch.channels_last)
+        # pdb.set_trace()
+
         if self.not_changed:
-            layer_1, layer_2, layer_3, layer_4 = forward_vit(self.pretrained, x)
+            layer_1, layer_2, layer_3, layer_4 = forward_vit(self.pretrained, x, self.backbone)
 
             layer_1_rn = self.scratch.layer1_rn(layer_1)
             layer_2_rn = self.scratch.layer2_rn(layer_2)
@@ -292,7 +324,8 @@ class LSeg(BaseModel):
             out = self.scratch.output_conv(out)
 
         else:
-            layer_1, layer_2, layer_3, layer_4 = forward_vit(self.pretrained, x)
+            pdb.set_trace() #输入给siglip的维度是bs 3 384 384
+            layer_1, layer_2, layer_3, layer_4 = forward_vit(self.pretrained, x, self.backbone)
 
             layer_1_rn = self.scratch.layer1_rn(layer_1)
             layer_2_rn = self.scratch.layer2_rn(layer_2)
@@ -306,7 +339,10 @@ class LSeg(BaseModel):
 
             text = text.to(x.device)
             self.logit_scale = self.logit_scale.to(x.device)
-            text_features = self.clip_pretrained.encode_text(text)
+            if self.backbone == "siglip_vitl16_384":
+                text_features = self.clip_pretrained(text).pooler_output
+            else:
+                text_features = self.clip_pretrained.encode_text(text)
 
             image_features = self.scratch.head1(path_1)
 
@@ -316,8 +352,12 @@ class LSeg(BaseModel):
             # normalized features
             image_features = image_features / image_features.norm(dim=-1, keepdim=True)
             text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-            
-            logits_per_image = self.logit_scale * image_features.half() @ text_features.t()
+            pdb.set_trace() 
+            #image 57600, 512 text 150 512, 
+            if image_features.dtype == text_features.t().dtype:
+                logits_per_image = self.logit_scale * image_features @ text_features.t()
+            else:
+                logits_per_image = self.logit_scale * image_features.half() @ text_features.t()
 
             out = logits_per_image.float().view(imshape[0], imshape[2], imshape[3], -1).permute(0,3,1,2)
 

@@ -5,6 +5,8 @@ import types
 import math
 import torch.nn.functional as F
 import clip
+import pdb
+from transformers import AutoModel
 
 activations = {}
 
@@ -138,17 +140,25 @@ class Transpose(nn.Module):
 #     layer_4 = pretrained.act_postprocess4[3 : len(pretrained.act_postprocess4)](layer_4)
 
 #     return layer_1, layer_2, layer_3, layer_4
-def forward_vit(pretrained, x):
+def forward_vit(pretrained, x, backbone):
+
+    # pdb.set_trace()
+    if backbone == "siglip_vitl16_384":
+        pass
+        # x = F.interpolate(x, size=(384, 384), mode='bilinear', align_corners=False)
+
     b, c, h, w = x.shape
     
     # encoder
-    glob = pretrained.model.forward_flex(x)
+    # if backbone == "siglip_vitl16_384":
+    pdb.set_trace()
+    glob = pretrained.model.forward_flex(x,backbone)
 
-    layer_1 = pretrained.activations["1"] #torch.Size([4, 901, 1024])
+    layer_1 = pretrained.activations["1"] #torch.Size([4, 901, 1024]) 576
     layer_2 = pretrained.activations["2"]
     layer_3 = pretrained.activations["3"]
     layer_4 = pretrained.activations["4"]
-
+    # pdb.set_trace()
     layer_1 = pretrained.act_postprocess1[0:2](layer_1)
     layer_2 = pretrained.act_postprocess2[0:2](layer_2)
     layer_3 = pretrained.act_postprocess3[0:2](layer_3)
@@ -165,7 +175,7 @@ def forward_vit(pretrained, x):
             ),
         )
     )
-
+    # pdb.set_trace()
     if layer_1.ndim == 3:
         layer_1 = unflatten(layer_1)
     if layer_2.ndim == 3:
@@ -184,6 +194,7 @@ def forward_vit(pretrained, x):
 
 
 def _resize_pos_embed(self, posemb, gs_h, gs_w):
+    pdb.set_trace()
     posemb_tok, posemb_grid = (
         posemb[:, : self.start_index],
         posemb[0, self.start_index :],
@@ -200,39 +211,51 @@ def _resize_pos_embed(self, posemb, gs_h, gs_w):
     return posemb
 
 
-def forward_flex(self, x):
+def forward_flex(self, x, backbone):
+    
     b, c, h, w = x.shape
+    if backbone == "siglip_vitl16_384":
+        #这里的x维度必须是 bs 3 384 384
+        # x = F.interpolate(x, size=(384, 384), mode='bilinear', align_corners=False)
+        x = self.patch_embed.proj(x).flatten(2).transpose(1, 2)
+        pos_embed = self._resize_pos_embed(
+            self.pos_embed, h // self.patch_size[1], w // self.patch_size[0]
+        )
+        x = x + pos_embed
+        x = self.pos_drop(x)
 
-    pos_embed = self._resize_pos_embed(
-        self.pos_embed, h // self.patch_size[1], w // self.patch_size[0]
-    )
-
-    B = x.shape[0]
-
-    if hasattr(self.patch_embed, "backbone"):
-        x = self.patch_embed.backbone(x)
-        if isinstance(x, (list, tuple)):
-            x = x[-1]  # last feature if backbone outputs list/tuple of features
-    x = self.patch_embed.proj(x).flatten(2).transpose(1, 2)
-
-    if getattr(self, "dist_token", None) is not None:
-        cls_tokens = self.cls_token.expand(
-            B, -1, -1
-        )  # stole cls_tokens impl from Phil Wang, thanks
-        dist_token = self.dist_token.expand(B, -1, -1)
-        x = torch.cat((cls_tokens, dist_token, x), dim=1)
     else:
+        pos_embed = self._resize_pos_embed(
+            self.pos_embed, h // self.patch_size[1], w // self.patch_size[0]
+        )
+
+        B = x.shape[0]
+
+        if hasattr(self.patch_embed, "backbone"):
+            x = self.patch_embed.backbone(x)
+            if isinstance(x, (list, tuple)):
+                x = x[-1]  # last feature if backbone outputs list/tuple of features
+        x = self.patch_embed.proj(x).flatten(2).transpose(1, 2)
+
+        if getattr(self, "dist_token", None) is not None:
+            cls_tokens = self.cls_token.expand(
+                B, -1, -1
+            )  # stole cls_tokens impl from Phil Wang, thanks
+            dist_token = self.dist_token.expand(B, -1, -1)
+            x = torch.cat((cls_tokens, dist_token, x), dim=1)
+
         cls_tokens = self.cls_token.expand(
             B, -1, -1
         )  # stole cls_tokens impl from Phil Wang, thanks
         x = torch.cat((cls_tokens, x), dim=1)
-
-    x = x + pos_embed
-    x = self.pos_drop(x)
+        
+        # pdb.set_trace()
+        x = x + pos_embed
+        x = self.pos_drop(x)
 
     for blk in self.blocks:
         x = blk(x)
-
+    # pdb.set_trace()
     x = self.norm(x)
 
     return x
@@ -259,10 +282,13 @@ def _make_pretrained_clip_vitl16_384(
     pretrained, use_readout="ignore", hooks=None, enable_attention_hooks=False
 ):
     clip_pretrained, _ = clip.load("ViT-B/32", device='cuda', jit=False)
+    # TODO 这里添加操作使得clip_pretrained部分的参数不可更新
+    for param in clip_pretrained.parameters():
+        param.requires_grad = False
     model = timm.create_model("vit_large_patch16_384", pretrained=pretrained)
 
     hooks = [5, 11, 17, 23] if hooks == None else hooks
-    
+    pdb.set_trace()
     pretrained = _make_vit_b16_backbone(
         model,
         features=[256, 512, 1024, 1024],
@@ -273,6 +299,29 @@ def _make_pretrained_clip_vitl16_384(
     )
     return clip_pretrained, pretrained
 
+def _make_pretrained_siglip_vitl16_384(
+    pretrained, use_readout="ignore", hooks=None, enable_attention_hooks=False
+):
+    model = AutoModel.from_pretrained("google/siglip-large-patch16-384")
+    siglip_pretrained = model.text_model
+    # TODO 这里添加操作使得clip_pretrained部分的参数不可更新
+    for param in siglip_pretrained.parameters():
+        param.requires_grad = False
+    # model = timm.create_model("vit_large_patch16_384", pretrained=pretrained)
+    model = timm.create_model('vit_large_patch16_siglip_384',pretrained=pretrained)
+
+    hooks = [5, 11, 17, 23] if hooks == None else hooks
+    pdb.set_trace()
+    pretrained = _make_vit_b16_backbone(
+        model,
+        features=[256, 512, 1024, 1024],
+        hooks=hooks,
+        vit_features=1024,
+        use_readout=use_readout,
+        enable_attention_hooks=enable_attention_hooks,
+        start_index = 0
+    )
+    return siglip_pretrained, pretrained
 
 def _make_pretrained_clipRN50x16_vitl16_384(
     pretrained, use_readout="ignore", hooks=None, enable_attention_hooks=False
