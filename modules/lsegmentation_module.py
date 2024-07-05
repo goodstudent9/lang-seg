@@ -24,6 +24,7 @@ import numpy as np
 from encoding.utils import SegmentationMetric
 
 from torch.utils.tensorboard import SummaryWriter
+
 import os
 
 class LSegmentationModule(pl.LightningModule):
@@ -41,7 +42,8 @@ class LSegmentationModule(pl.LightningModule):
         self.scaler = amp.GradScaler(enabled=self.enabled)
         self.not_changed = kwargs["not_changed"]
         version_path = os.path.join("/home/lang-seg/checkpoints/", kwargs['exp_name'], str(kwargs['version']))
-        self.writer = SummaryWriter(version_path)
+        # self.writer = SummaryWriter(version_path)
+        # self.writer = TensorBoardLogger(version_path)
         # self.reta
 
     def forward(self, x):
@@ -84,13 +86,14 @@ class LSegmentationModule(pl.LightningModule):
         train_pred, train_gt = self._filter_invalid(final_output, target)
         if train_gt.nelement() != 0:
             self.train_accuracy(train_pred, train_gt)
-        #self.log("train_loss", loss)
-        self.writer.add_scalar("train_loss", loss,self.global_step)
+        self.log("train_loss", loss)
+        loss.backward(retain_graph=True)
+        # self.writer.add_scalar("train_loss", loss,self.global_step)
         return loss
 
     def training_epoch_end(self, outs):
-        #self.log("train_acc_epoch", self.train_accuracy.compute())
-        self.writer.add_scalar("train_acc_epoch", self.train_accuracy.compute(), self.global_step)
+        self.log("train_acc_epoch", self.train_accuracy.compute())
+        # self.writer.add_scalar("train_acc_epoch", self.train_accuracy.compute(), self.global_step)
 
     def validation_step(self, batch, batch_nb):
         img, target = batch
@@ -104,28 +107,28 @@ class LSegmentationModule(pl.LightningModule):
         valid_pred, valid_gt = self._filter_invalid(final_output, target)
         self.val_iou.update(target, final_output)
         pixAcc, iou = self.val_iou.get()
-        #self.log("val_loss_step", val_loss)
-        #self.log("pix_acc_step", pixAcc)
-        #self.log(
-        #     "val_acc_step",
-        #     self.val_accuracy(valid_pred, valid_gt),
-        # )
-        #self.log("val_iou", iou)
-        self.writer.add_scalar("val_loss_step", val_loss,self.global_step)
-        self.writer.add_scalar("pix_acc_step", pixAcc,self.global_step)
-        self.writer.add_scalar("val_acc_step", self.val_accuracy(valid_pred, valid_gt),self.global_step)
-        self.writer.add_scalar("val_iou", iou,self.global_step)
+        self.log("val_loss_step", val_loss)
+        self.log("pix_acc_step", pixAcc)
+        self.log(
+            "val_acc_step",
+            self.val_accuracy(valid_pred, valid_gt),
+        )
+        self.log("val_iou", iou)
+        # self.writer.add_scalar("val_loss_step", val_loss,self.global_step)
+        # self.writer.add_scalar("pix_acc_step", pixAcc,self.global_step)
+        # self.writer.add_scalar("val_acc_step", self.val_accuracy(valid_pred, valid_gt),self.global_step)
+        # self.writer.add_scalar("val_iou", iou,self.global_step)
 
 
     def validation_epoch_end(self, outs):
         pixAcc, iou = self.val_iou.get()
-        #self.log("val_acc_epoch", self.val_accuracy.compute())
-        #self.log("val_iou_epoch", iou)
-        #self.log("pix_acc_epoch", pixAcc)
+        self.log("val_acc_epoch", self.val_accuracy.compute())
+        self.log("val_iou_epoch", iou)
+        self.log("pix_acc_epoch", pixAcc)
 
-        self.writer.add_scalar("val_acc_epoch", self.val_accuracy.compute(), self.global_step)
-        self.writer.add_scalar("val_iou_epoch", iou, self.global_step)
-        self.writer.add_scalar("pix_acc_epoch", pixAcc, self.global_step)
+        # self.writer.add_scalar("val_acc_epoch", self.val_accuracy.compute(), self.global_step)
+        # self.writer.add_scalar("val_iou_epoch", iou, self.global_step)
+        # self.writer.add_scalar("pix_acc_epoch", pixAcc, self.global_step)
 
         self.val_iou.reset()
 
@@ -206,7 +209,7 @@ class LSegmentationModule(pl.LightningModule):
             self.trainset,
             batch_size=self.batch_size,
             shuffle=True,
-            num_workers=0
+            num_workers=4
         #     worker_init_fn=lambda x: random.seed(time.time() + x),
         )
 
@@ -215,7 +218,7 @@ class LSegmentationModule(pl.LightningModule):
             self.valset,
             batch_size=self.batch_size,
             shuffle=False,
-            num_workers=0
+            num_workers=4
         )
 
     def get_trainset(self, dset, augment=False, **kwargs):

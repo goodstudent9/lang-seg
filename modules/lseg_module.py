@@ -1,3 +1,4 @@
+import pdb
 import re
 import torch
 import torch.nn as nn
@@ -83,12 +84,15 @@ class LSegModule(LSegmentationModule):
             activation=kwargs["activation"],
             not_changed=kwargs["not_changed"]
         )
- 
-        self.net.pretrained.model.patch_embed.img_size = (
-            self.crop_size,
-            self.crop_size,
-        )
-
+        # pdb.set_trace()
+        # self.net.pretrained.model.patch_embed.img_size = (
+        #     self.crop_size,
+        #     self.crop_size,
+        # )
+        # self.net.pretrained.model.patch_embedding.img_size = (
+        #     self.crop_size,
+        #     self.crop_size,
+        # )
         self._up_kwargs = up_kwargs
         self.mean = norm_mean
         self.std = norm_std

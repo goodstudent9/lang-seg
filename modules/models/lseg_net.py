@@ -242,7 +242,6 @@ class LSeg(BaseModel):
             
             text = self.tokenizer(labelset, padding="max_length")
             
-
         else:
             text = clip.tokenize(labelset)
         if not torch.is_tensor(text): 
@@ -324,7 +323,7 @@ class LSeg(BaseModel):
             out = self.scratch.output_conv(out)
 
         else:
-            pdb.set_trace() #输入给siglip的维度是bs 3 384 384
+            # pdb.set_trace() #输入给siglip的维度是bs 3 384 384
             layer_1, layer_2, layer_3, layer_4 = forward_vit(self.pretrained, x, self.backbone)
 
             layer_1_rn = self.scratch.layer1_rn(layer_1)
@@ -352,7 +351,7 @@ class LSeg(BaseModel):
             # normalized features
             image_features = image_features / image_features.norm(dim=-1, keepdim=True)
             text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-            pdb.set_trace() 
+            # pdb.set_trace() 
             #image 57600, 512 text 150 512, 
             if image_features.dtype == text_features.t().dtype:
                 logits_per_image = self.logit_scale * image_features @ text_features.t()

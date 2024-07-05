@@ -3,6 +3,7 @@ import pathlib
 from glob import glob
 
 from argparse import ArgumentParser
+import pdb
 import torch
 import pytorch_lightning as pl
 import numpy as np
@@ -10,17 +11,18 @@ import cv2
 import random
 import math
 from torchvision import transforms
+from pytorch_lightning.loggers import TensorBoardLogger
 
 
 def do_training(hparams, model_constructor):
     # instantiate model
-    hparams.version = 4
-    hparams.no_resume = True
+    hparams.version = 6
+    hparams.no_resume = False
     hparams.not_changed = False
     model = model_constructor(**vars(hparams))
     # set all sorts of training parameters
-    hparams.gpus = 4
-    hparams.accelerator = "gpu"
+    hparams.gpus = 2
+    hparams.accelerator = "ddp"
     # hparams.gpus=3
     hparams.benchmark = True
 
@@ -39,12 +41,13 @@ def do_training(hparams, model_constructor):
     ttlogger = pl.loggers.CSVLogger(
         "checkpoints", name=hparams.exp_name, version=hparams.version
     )
-
+    # pdb.set_trace()
     hparams.callbacks = make_checkpoint_callbacks(hparams.exp_name, hparams.version)
 
     # wblogger = get_wandb_logger(hparams)
+    tb_logger = TensorBoardLogger("checkpoints", name=hparams.exp_name, version=hparams.version)
     # hparams.logger = [wblogger, ttlogger]
-    hparams.logger = [ttlogger]
+    hparams.logger = [ttlogger,tb_logger]
     trainer = pl.Trainer.from_argparse_args(hparams)
 
     trainer.fit(model)
@@ -157,7 +160,8 @@ def get_latest_checkpoint(exp_name, version):
 
 def set_resume_parameters(hparams):
     version = get_latest_version(f"./checkpoints/{hparams.exp_name}")
-
+    version = hparams.version
+    # pdb.set_trace()
     if version is not None:
         latest, version = get_latest_checkpoint(hparams.exp_name, version)
         print(f"Resuming checkpoint {latest}, exp_version={version}")
